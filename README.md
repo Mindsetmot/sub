@@ -28,4 +28,4 @@ Subtitle Studio Pro adalah web-based SRT editor yang dirancang khusus untuk peng
 * **FontAwesome:** Untuk ikon antarmuka yang intuitif.
 
 ---
-© 2025 Floverse - All Rights Reserved
+© 2025 Mindsetmot - All Rights Reserved
