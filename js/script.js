@@ -73,14 +73,18 @@ function timeToSec(str) {
     return +parts[0] || 0;
 }
 
-// --- FUNGSI SYNC ---
+// --- FUNGSI SYNC (DENGAN KOMPENSASI 200MS) ---
 function setMarkerAt(index, type) {
     if (!video.src) return alert("Pilih video terlebih dahulu!");
     saveHistory();
-    const now = video.currentTime;
+    
+    let now = video.currentTime;
     const sub = subtitles[index];
+
     if (type === 'start') {
-        sub.start = now;
+        // KOMPENSASI JEDA REAKSI: Kurangi 0.2 detik agar subtitle tidak telat muncul
+        // Pastikan waktu tidak menjadi negatif
+        sub.start = Math.max(0, now - 0.2); 
     } else {
         if (now < sub.start) {
             alert("Waktu selesai tidak boleh kurang dari waktu mulai!");
@@ -90,6 +94,7 @@ function setMarkerAt(index, type) {
         }
         sub.end = now;
     }
+
     const sStr = formatTime(sub.start).replace('.', ',');
     const eStr = formatTime(sub.end).replace('.', ',');
     sub.timeLine = `${sStr} --> ${eStr}`;
@@ -246,7 +251,6 @@ function updateLoop() {
             const pos = tagMatch ? parseInt(tagMatch[1]) : 2;
             displayText = displayText.replace(/\{\\an[1-9]\}/g, '').trim();
             
-            // Render manual tags
             span.innerHTML = displayText.replace(/\n/g, '<br>'); 
             applyStyles(span);
 
