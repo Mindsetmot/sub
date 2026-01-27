@@ -214,7 +214,7 @@ function saveSubtitle() {
     const blob = new Blob([output], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = "subtitle.srt"; a.click();
+    a.href = url; a.download = "subtitle_edited.srt"; a.click();
 }
 
 // --- OVERLAY & LOOP ---
