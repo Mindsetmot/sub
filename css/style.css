@@ -203,9 +203,19 @@ video, #yt-player {
 
 #overlay-top { 
     top: 7%; 
+    justify-content: flex-start;
+}
+/* Wadah khusus posisi tengah ({\an4}/{\an5}/{\an6}) - TERPISAH dari
+   overlay-bottom, biar nggak lagi rebutan/nimpa properti justifyContent
+   & height kayak sebelumnya kalau tag posisi bawah & tengah aktif bersamaan. */
+.subtitle-overlay-full {
+    top: 0;
+    height: 100%;
+    justify-content: center;
 }
 #overlay-bottom { 
     bottom: 10%; 
+    justify-content: flex-end;
 }
 .subtitle-text { 
     display: inline-block; 
