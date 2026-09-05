@@ -110,7 +110,108 @@ function applyMusicFormat(index) {
     } else {
         sub.rawText = `{\\an8}<b><i>${text}</i></b>`;
     }
-    renderEditor(subtitles, false);
+    localStorage.setItem('web_sub_draft_v2', JSON.stringify(subtitles));
+    // Cukup update textarea baris ini doang, nggak perlu render ulang semuanya
+    const rowEl = document.getElementById('cue-container').children[index];
+    const textarea = rowEl && rowEl.querySelector('.edit-area');
+    if (textarea) textarea.value = sub.rawText;
+}
+
+/**
+ * Bikin satu elemen DOM baris subtitle. Dipisah jadi fungsi sendiri biar
+ * bisa dipakai ulang baik pas render penuh (import/undo/redo) MAUPUN pas
+ * nyisipin satu baris baru doang (addNewCue) tanpa perlu render ulang
+ * semuanya.
+ *
+ * PENTING: tombol-tombolnya nggak lagi pake inline onclick yang nge-bake
+ * index ke dalam string HTML (`onclick="deleteCue(${i})"`). Itu penyebab
+ * utama kenapa hapus 1 baris jadi lag di file subtitle panjang - soalnya
+ * satu-satunya cara "benerin" index yang kegeser di baris-baris setelahnya
+ * adalah render ulang SEMUA baris dari nol (innerHTML='' + rebuild total).
+ * Sekarang tombol cuma punya `data-action`, dan baris punya `data-index`
+ * yang di-update langsung (lightweight) pas ada baris dihapus/disisipkan -
+ * event listener-nya baca data-index ini secara live lewat event delegation
+ * di container (lihat setupCueContainerEvents), jadi nggak perlu bongkar
+ * pasang DOM buat reindex.
+ */
+function createCueElement(sub, i) {
+    const div = document.createElement('div');
+    div.className = 'subtitle-cue';
+    div.dataset.index = i;
+    div.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div style="display:flex; align-items:center; gap:10px; flex:1;">
+                <span class="cue-index-label" style="font-weight:bold; color:var(--primary-color); min-width:25px;">#${i+1}</span>
+                <input class="timestamp-input" style="flex:1;">
+            </div>
+            <div style="display:flex; gap:5px; margin-left:10px;">
+                <button class="btn-small" data-action="play"><i class="fas fa-play"></i></button>
+                <button class="btn-small" data-action="add"><i class="fas fa-plus"></i></button>
+                <button class="btn-small btn-del" data-action="delete"><i class="fas fa-trash"></i></button>
+            </div>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr 50px; gap:8px; margin-bottom:8px;">
+            <button class="btn-sync-touch btn-start" data-action="start">START</button>
+            <button class="btn-sync-touch btn-end" data-action="end">END</button>
+            <button class="btn-sync-touch btn-music" data-action="music"><i class="fas fa-music"></i></button>
+        </div>
+        <textarea class="edit-area" rows="2"></textarea>
+    `;
+    // di-set lewat .value, bukan interpolasi ke innerHTML - biar aman kalau
+    // rawText mengandung karakter yang bisa disalahartikan sebagai markup HTML
+    div.querySelector('.timestamp-input').value = sub.timeLine;
+    div.querySelector('.edit-area').value = sub.rawText;
+    return div;
+}
+
+// Event delegation: SATU listener buat semua baris (bukan onclick per baris).
+// Ini yang bikin reindex pas delete/insert jadi murah - kita tinggal update
+// atribut data-index & label teksnya, event listener-nya otomatis "ngikut"
+// karena baca data-index secara live pas diklik, bukan pas dibuat.
+function setupCueContainerEvents() {
+    const container = document.getElementById('cue-container');
+
+    container.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const row = btn.closest('.subtitle-cue');
+        const i = parseInt(row.dataset.index, 10);
+        switch (btn.dataset.action) {
+            case 'play': seekTo(subtitles[i].start); break;
+            case 'add': addNewCue(i + 1); break;
+            case 'delete': deleteCue(i); break;
+            case 'start': setMarkerAt(i, 'start'); break;
+            case 'end': setMarkerAt(i, 'end'); break;
+            case 'music': applyMusicFormat(i); break;
+        }
+    });
+
+    container.addEventListener('input', (e) => {
+        if (!e.target.classList.contains('edit-area')) return;
+        const row = e.target.closest('.subtitle-cue');
+        liveUpdateText(parseInt(row.dataset.index, 10), e.target.value);
+    });
+
+    container.addEventListener('change', (e) => {
+        const row = e.target.closest('.subtitle-cue');
+        if (!row) return;
+        const i = parseInt(row.dataset.index, 10);
+        if (e.target.classList.contains('timestamp-input')) updateTimestamp(i, e.target.value);
+        else if (e.target.classList.contains('edit-area')) saveHistoryText();
+    });
+}
+
+// Update data-index & label nomor "#N" pada rentang baris tertentu, TANPA
+// bikin ulang elemen-elemennya. Dipanggil abis delete/insert buat "geser"
+// nomor baris yang ada di belakangnya.
+function reindexRowsFrom(container, startIdx) {
+    for (let idx = startIdx; idx < subtitles.length; idx++) {
+        const rowEl = container.children[idx];
+        if (!rowEl) continue;
+        rowEl.dataset.index = idx;
+        const label = rowEl.querySelector('.cue-index-label');
+        if (label) label.textContent = '#' + (idx + 1);
+    }
 }
 
 function renderEditor(data, recordHistory = true) {
@@ -118,30 +219,9 @@ function renderEditor(data, recordHistory = true) {
     if (recordHistory) saveHistory();
     const container = document.getElementById('cue-container');
     container.innerHTML = '';
-    subtitles.forEach((sub, i) => {
-        const div = document.createElement('div');
-        div.className = 'subtitle-cue';
-        div.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                <div style="display:flex; align-items:center; gap:10px; flex:1;">
-                    <span style="font-weight:bold; color:var(--primary-color); min-width:25px;">#${i+1}</span>
-                    <input class="timestamp-input" value="${sub.timeLine}" onchange="updateTimestamp(${i}, this.value)" style="flex:1;">
-                </div>
-                <div style="display:flex; gap:5px; margin-left:10px;">
-                    <button class="btn-small" onclick="seekTo(${sub.start})"><i class="fas fa-play"></i></button>
-                    <button class="btn-small" onclick="addNewCue(${i+1})"><i class="fas fa-plus"></i></button>
-                    <button class="btn-small btn-del" onclick="deleteCue(${i})"><i class="fas fa-trash"></i></button>
-                </div>
-            </div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr 50px; gap:8px; margin-bottom:8px;">
-                <button class="btn-sync-touch btn-start" onclick="setMarkerAt(${i}, 'start')">START</button>
-                <button class="btn-sync-touch btn-end" onclick="setMarkerAt(${i}, 'end')">END</button>
-                <button class="btn-sync-touch btn-music" onclick="applyMusicFormat(${i})"><i class="fas fa-music"></i></button>
-            </div>
-            <textarea class="edit-area" rows="2" oninput="liveUpdateText(${i}, this.value)" onchange="saveHistoryText()">${sub.rawText}</textarea>
-        `;
-        container.appendChild(div);
-    });
+    const fragment = document.createDocumentFragment();
+    subtitles.forEach((sub, i) => fragment.appendChild(createCueElement(sub, i)));
+    container.appendChild(fragment);
     updateUndoButtons();
 }
 
@@ -175,12 +255,30 @@ function addNewCue(index) {
     }
     const newSub = { start: timeToSec(startTime), end: timeToSec(endTime), timeLine: `${startTime} --> ${endTime}`, rawText: "" };
     subtitles.splice(index, 0, newSub);
-    renderEditor(subtitles, false); 
+    localStorage.setItem('web_sub_draft_v2', JSON.stringify(subtitles));
+
+    // Sisipin cuma 1 elemen DOM baru di posisi yang bener, sisanya nggak disentuh
+    const container = document.getElementById('cue-container');
+    const newEl = createCueElement(newSub, index);
+    container.insertBefore(newEl, container.children[index] || null);
+    reindexRowsFrom(container, index + 1);
+    updateUndoButtons();
 }
 
 function deleteCue(i) {
     niceConfirm("Hapus baris ini?", (ok) => { 
-        if(ok) { saveHistory(); subtitles.splice(i, 1); renderEditor(subtitles, false); } 
+        if (!ok) return;
+        saveHistory();
+        subtitles.splice(i, 1);
+        localStorage.setItem('web_sub_draft_v2', JSON.stringify(subtitles));
+
+        // Hapus cuma 1 elemen DOM yang bersangkutan, sisanya nggak disentuh -
+        // ini fix utama buat lag yang kerasa pas hapus baris di file panjang
+        const container = document.getElementById('cue-container');
+        const rowEl = container.children[i];
+        if (rowEl) rowEl.remove();
+        reindexRowsFrom(container, i);
+        updateUndoButtons();
     });
 }
 
@@ -260,11 +358,14 @@ function updateLoop() {
     if(timeDisplay) timeDisplay.textContent = formatTime(now);
     
     const topOverlay = document.getElementById('overlay-top');
+    const middleOverlay = document.getElementById('overlay-middle');
     const bottomOverlay = document.getElementById('overlay-bottom');
     
-    if(topOverlay && bottomOverlay) {
+    if (topOverlay && middleOverlay && bottomOverlay) {
         topOverlay.innerHTML = '';
+        middleOverlay.innerHTML = '';
         bottomOverlay.innerHTML = '';
+        bottomOverlay.style.bottom = document.getElementById('y-pos').value + '%';
 
         const activeSubs = subtitles.filter(sub => now >= sub.start && now < sub.end);
         activeSubs.forEach(sub => {
@@ -278,30 +379,28 @@ function updateLoop() {
             span.innerHTML = displayText.replace(/\n/g, '<br>'); 
             applyStyles(span);
 
-            const isTop = pos >= 7;
-            const isMiddle = pos >= 4 && pos <= 6;
-            const targetOverlay = isTop ? topOverlay : bottomOverlay;
-
-            if (isMiddle) {
-                targetOverlay.style.justifyContent = 'center';
-                targetOverlay.style.height = '100%'; 
-            } else if (isTop) {
-                targetOverlay.style.justifyContent = 'flex-start';
-                targetOverlay.style.height = 'auto';
+            // PENTING: tiap span nentuin posisinya SENDIRI-SENDIRI lewat
+            // align-self (properti per-elemen), BUKAN lewat alignItems di
+            // level container (yang cuma bisa 1 nilai buat SEMUA anak,
+            // gampang saling timpa kalau ada beberapa subtitle beda posisi
+            // aktif bersamaan). Ini fix utama bug tampilan berantakan.
+            let targetOverlay;
+            if (pos >= 7) {
+                targetOverlay = topOverlay;
+            } else if (pos >= 4) {
+                targetOverlay = middleOverlay;
             } else {
-                targetOverlay.style.justifyContent = 'flex-end';
-                targetOverlay.style.height = 'auto';
-                targetOverlay.style.bottom = document.getElementById('y-pos').value + '%';
+                targetOverlay = bottomOverlay;
             }
 
             if ([1, 4, 7].includes(pos)) {
-                targetOverlay.style.alignItems = 'flex-start';
+                span.style.alignSelf = 'flex-start';
                 span.style.textAlign = 'left';
             } else if ([3, 6, 9].includes(pos)) {
-                targetOverlay.style.alignItems = 'flex-end';
+                span.style.alignSelf = 'flex-end';
                 span.style.textAlign = 'right';
             } else {
-                targetOverlay.style.alignItems = 'center';
+                span.style.alignSelf = 'center';
                 span.style.textAlign = 'center';
             }
             targetOverlay.appendChild(span);
@@ -420,6 +519,7 @@ document.getElementById('video-input').onchange = e => {
 };
 
 window.onload = () => {
+    setupCueContainerEvents();
     const saved = localStorage.getItem('web_sub_draft_v2');
     if (saved) { 
         subtitles = JSON.parse(saved);
